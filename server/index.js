@@ -329,17 +329,70 @@ function composeProposal(tour) {
 
 function extractJson(text) {
   if (!text) return null;
-  const trimmed = text.trim();
+  const trimmed = String(text).trim();
+  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  const source = fenced ? fenced[1].trim() : trimmed;
   try {
-    return JSON.parse(trimmed);
+    return JSON.parse(source);
   } catch {
-    const start = trimmed.indexOf('{');
-    const end = trimmed.lastIndexOf('}');
+    const start = source.indexOf('{');
+    const end = source.lastIndexOf('}');
     if (start >= 0 && end > start) {
-      return JSON.parse(trimmed.slice(start, end + 1));
+      return JSON.parse(source.slice(start, end + 1));
     }
   }
   return null;
+}
+
+function getAiResponseContent(data) {
+  const choice = data?.choices?.[0] || {};
+  const message = choice.message || {};
+  return String(
+    message.content
+    || choice.text
+    || data?.output_text
+    || ''
+  );
+}
+
+function getAiReasoningContent(data) {
+  const choice = data?.choices?.[0] || {};
+  return String(choice.message?.reasoning_content || '');
+}
+
+function describeAiResponse(data) {
+  const choice = data?.choices?.[0] || {};
+  const message = choice.message || {};
+  return {
+    dataKeys: Object.keys(data || {}),
+    choiceKeys: Object.keys(choice || {}),
+    messageKeys: Object.keys(message || {}),
+    contentLength: String(message.content || '').length,
+    reasoningLength: String(message.reasoning_content || '').length,
+    finishReason: choice.finish_reason || choice.finishReason || null
+  };
+}
+
+function makeAiErrorPreview(data, content) {
+  const shape = describeAiResponse(data);
+  const text = String(content || '').trim();
+  if (text) return text.slice(0, 300);
+  const reasoning = getAiReasoningContent(data).trim();
+  if (reasoning) return `reasoning_content: ${reasoning.slice(0, 260)}`;
+  return JSON.stringify(shape).slice(0, 300);
+}
+
+function plannerSystemPrompt() {
+  return [
+    'You are a JSON-only adapter for an industrial tour planner.',
+    'Select the best candidate ids for the request.',
+    'Rules: choose 1-3 enterprises; respect group type, capacity, duration, working hours, available starts, city, goal, and interests.',
+    'For school groups prefer free or cheaper enterprises unless interests require otherwise.',
+    'If duration is 5 hours or more, select one food place when available.',
+    'Select one transport company with enough seats.',
+    'Return only compact valid JSON with keys: summary, rationale, selectedEnterpriseIds, selectedFoodId, selectedTransportId, selectedAccommodationId, risks.',
+    'Do not write reasoning outside JSON. Do not use markdown. Do not invent ids.'
+  ].join(' ');
 }
 
 async function callAiPlanner(request, candidates) {
@@ -362,8 +415,6 @@ async function callAiPlanner(request, candidates) {
       }
     };
   }
-  const systemPrompt = await loadSystemPrompt(creds);
-
   const safeCandidates = {
     enterprises: candidates.enterprises.slice(0, 8).map(({ id, externalId, name, industry, description, tags, durationMinutes, capacity, prices, availableStarts, selectedFormat, coordinates, workStart, workEnd, score }) => ({
       id, externalId, name, industry, description, tags, durationMinutes, capacity, prices, availableStarts, selectedFormat, coordinates, workStart, workEnd, score
@@ -374,11 +425,20 @@ async function callAiPlanner(request, candidates) {
   };
 
   const messages = [
-    { role: 'system', content: systemPrompt },
+    { role: 'system', content: plannerSystemPrompt() },
     {
       role: 'user',
       content: JSON.stringify({
-        task: 'Собери промышленный тур. Выбери только id из candidates. Верни JSON: summary, rationale, selectedEnterpriseIds, selectedFoodId, selectedTransportId, selectedAccommodationId, risks.',
+        task: 'Собери промышленный тур. Верни только компактный JSON без markdown и объяснений.',
+        responseSchema: {
+          summary: 'string',
+          rationale: 'string',
+          selectedEnterpriseIds: ['number'],
+          selectedFoodId: 'number|null',
+          selectedTransportId: 'number|null',
+          selectedAccommodationId: 'number|null',
+          risks: ['string']
+        },
         request,
         candidates: safeCandidates
       })
@@ -395,7 +455,8 @@ async function callAiPlanner(request, candidates) {
       model: creds.AI_API_MODEL,
       messages,
       temperature: 0.2,
-      max_tokens: 900
+      max_tokens: 4096,
+      response_format: { type: 'json_object' }
     })
   });
 
@@ -413,16 +474,20 @@ async function callAiPlanner(request, candidates) {
   }
 
   const data = await response.json();
-  const content = data.choices?.[0]?.message?.content || '';
+  const content = getAiResponseContent(data);
   const plan = extractJson(content);
   if (!plan) {
+    const shape = describeAiResponse(data);
     return {
       plan: null,
       diagnostic: {
         ...baseDiagnostic,
         mode: 'fallback',
-        reason: 'LLM ответила, но ответ не удалось разобрать как JSON',
-        errorPreview: content.slice(0, 240)
+        reason: content.trim()
+          ? 'LLM ответила, но ответ не удалось разобрать как JSON'
+          : 'LLM API ответил, но поле content пустое',
+        errorPreview: makeAiErrorPreview(data, content),
+        responseShape: shape
       }
     };
   }
@@ -437,10 +502,68 @@ async function callAiPlanner(request, candidates) {
   };
 }
 
+function matchCandidateByAiId(items, value) {
+  if (value === null || value === undefined || value === '') return null;
+  const needle = String(value).trim();
+  const numeric = Number(needle);
+  return items.find((item) => item.id === numeric)
+    || items.find((item) => String(item.externalId || '').trim() === needle)
+    || items.find((item) => String(item.company_id || '').trim() === needle)
+    || null;
+}
+
+function normalizeAiPlan(aiPlan, candidates) {
+  if (!aiPlan || typeof aiPlan !== 'object') return null;
+  const selectedEnterpriseIds = Array.isArray(aiPlan.selectedEnterpriseIds)
+    ? aiPlan.selectedEnterpriseIds
+    : [];
+  const normalized = {
+    summary: aiPlan.summary || aiPlan.tour_name || '',
+    rationale: aiPlan.rationale || '',
+    selectedEnterpriseIds,
+    selectedFoodId: aiPlan.selectedFoodId,
+    selectedTransportId: aiPlan.selectedTransportId,
+    selectedAccommodationId: aiPlan.selectedAccommodationId,
+    risks: Array.isArray(aiPlan.risks) ? aiPlan.risks : []
+  };
+
+  if (!normalized.rationale && Array.isArray(aiPlan.reasoning)) {
+    normalized.rationale = aiPlan.reasoning.join(' ');
+  }
+
+  if (!normalized.selectedEnterpriseIds.length && Array.isArray(aiPlan.itinerary)) {
+    normalized.selectedEnterpriseIds = aiPlan.itinerary
+      .map((item) => item.enterprise_id || item.enterpriseId || item.enterprise || item.object_id || item.objectId)
+      .map((id) => matchCandidateByAiId(candidates.enterprises, id)?.id)
+      .filter(Boolean);
+  }
+
+  if (!normalized.selectedTransportId && aiPlan.transport) {
+    const transportId = aiPlan.transport.company_id || aiPlan.transport.companyId || aiPlan.transport.id;
+    normalized.selectedTransportId = matchCandidateByAiId(candidates.transports, transportId)?.id;
+  }
+
+  if (!normalized.selectedFoodId && (aiPlan.food || aiPlan.meal || aiPlan.catering)) {
+    const food = aiPlan.food || aiPlan.meal || aiPlan.catering;
+    const foodId = food.place_id || food.placeId || food.id;
+    normalized.selectedFoodId = matchCandidateByAiId(candidates.foodPlaces, foodId)?.id;
+  }
+
+  if (!normalized.selectedAccommodationId && (aiPlan.accommodation || aiPlan.hotel)) {
+    const accommodation = aiPlan.accommodation || aiPlan.hotel;
+    const accommodationId = accommodation.place_id || accommodation.placeId || accommodation.id;
+    normalized.selectedAccommodationId = matchCandidateByAiId(candidates.accommodations, accommodationId)?.id;
+  }
+
+  return normalized;
+}
+
 function applyAiSelection(aiPlan, fallbackSelection) {
   if (!aiPlan) return fallbackSelection;
   const candidates = fallbackSelection.candidates;
-  const enterpriseIds = Array.isArray(aiPlan.selectedEnterpriseIds) ? aiPlan.selectedEnterpriseIds.map(Number) : [];
+  const normalizedPlan = normalizeAiPlan(aiPlan, candidates);
+  if (!normalizedPlan) return fallbackSelection;
+  const enterpriseIds = normalizedPlan.selectedEnterpriseIds.map(Number);
   const selectedEnterprises = enterpriseIds
     .map((id) => candidates.enterprises.find((item) => item.id === id))
     .filter(Boolean);
@@ -448,12 +571,12 @@ function applyAiSelection(aiPlan, fallbackSelection) {
   return {
     ...fallbackSelection,
     selectedEnterprises: selectedEnterprises.length ? selectedEnterprises : fallbackSelection.selectedEnterprises,
-    selectedFood: candidates.foodPlaces.find((item) => item.id === Number(aiPlan.selectedFoodId)) || fallbackSelection.selectedFood,
-    selectedTransport: candidates.transports.find((item) => item.id === Number(aiPlan.selectedTransportId)) || fallbackSelection.selectedTransport,
-    selectedAccommodation: candidates.accommodations.find((item) => item.id === Number(aiPlan.selectedAccommodationId)) || fallbackSelection.selectedAccommodation,
-    aiSummary: aiPlan.summary || '',
-    aiRationale: aiPlan.rationale || '',
-    risks: Array.isArray(aiPlan.risks) ? aiPlan.risks : []
+    selectedFood: candidates.foodPlaces.find((item) => item.id === Number(normalizedPlan.selectedFoodId)) || fallbackSelection.selectedFood,
+    selectedTransport: candidates.transports.find((item) => item.id === Number(normalizedPlan.selectedTransportId)) || fallbackSelection.selectedTransport,
+    selectedAccommodation: candidates.accommodations.find((item) => item.id === Number(normalizedPlan.selectedAccommodationId)) || fallbackSelection.selectedAccommodation,
+    aiSummary: normalizedPlan.summary || '',
+    aiRationale: normalizedPlan.rationale || '',
+    risks: normalizedPlan.risks
   };
 }
 
@@ -570,7 +693,7 @@ async function testAiConnection() {
           { role: 'user', content: 'Верни JSON {"ok":true,"message":"connected"} без markdown.' }
         ],
         temperature: 0,
-        max_tokens: 80
+        max_tokens: 512
       })
     });
 
@@ -585,12 +708,14 @@ async function testAiConnection() {
     }
 
     const data = await response.json();
-    const content = data.choices?.[0]?.message?.content || '';
+    const content = getAiResponseContent(data);
+    const hasContent = Boolean(content.trim());
     return {
-      ok: true,
+      ok: hasContent,
       ...diagnostic,
-      message: 'Подключение работает: LLM ответила',
-      responsePreview: content.slice(0, 300)
+      message: hasContent ? 'Подключение работает: LLM ответила' : 'LLM API ответил, но поле content пустое',
+      responsePreview: content.slice(0, 300),
+      responseShape: describeAiResponse(data)
     };
   } catch (err) {
     return {
