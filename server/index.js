@@ -100,6 +100,12 @@ async function loadSystemPrompt(creds) {
   }
 }
 
+function resolveChatCompletionsUrl(apiUrl) {
+  const value = String(apiUrl || defaultAiCreds.AI_API_URL).trim().replace(/\/+$/, '');
+  if (/\/chat\/completions$/i.test(value)) return value;
+  return `${value}/chat/completions`;
+}
+
 function groupLabel(groupType) {
   return {
     school: 'школьники',
@@ -338,7 +344,24 @@ function extractJson(text) {
 
 async function callAiPlanner(request, candidates) {
   const creds = await loadAiCreds();
-  if (!creds.AI_API_KEY || creds.AI_API_KEY === 'your_key') return null;
+  const baseDiagnostic = {
+    provider: 'chat-completions',
+    apiUrl: creds.AI_API_URL,
+    requestUrl: resolveChatCompletionsUrl(creds.AI_API_URL),
+    model: creds.AI_API_MODEL,
+    checkedAt: new Date().toISOString()
+  };
+
+  if (!creds.AI_API_KEY || creds.AI_API_KEY === 'your_key') {
+    return {
+      plan: null,
+      diagnostic: {
+        ...baseDiagnostic,
+        mode: 'fallback',
+        reason: 'AI_API_KEY не указан'
+      }
+    };
+  }
   const systemPrompt = await loadSystemPrompt(creds);
 
   const safeCandidates = {
@@ -362,7 +385,7 @@ async function callAiPlanner(request, candidates) {
     }
   ];
 
-  const response = await fetch(creds.AI_API_URL, {
+  const response = await fetch(resolveChatCompletionsUrl(creds.AI_API_URL), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -376,9 +399,42 @@ async function callAiPlanner(request, candidates) {
     })
   });
 
-  if (!response.ok) return null;
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => '');
+    return {
+      plan: null,
+      diagnostic: {
+        ...baseDiagnostic,
+        mode: 'fallback',
+        reason: `LLM API вернул HTTP ${response.status}`,
+        errorPreview: errorText.slice(0, 240)
+      }
+    };
+  }
+
   const data = await response.json();
-  return extractJson(data.choices?.[0]?.message?.content);
+  const content = data.choices?.[0]?.message?.content || '';
+  const plan = extractJson(content);
+  if (!plan) {
+    return {
+      plan: null,
+      diagnostic: {
+        ...baseDiagnostic,
+        mode: 'fallback',
+        reason: 'LLM ответила, но ответ не удалось разобрать как JSON',
+        errorPreview: content.slice(0, 240)
+      }
+    };
+  }
+
+  return {
+    plan,
+    diagnostic: {
+      ...baseDiagnostic,
+      mode: 'llm',
+      reason: 'LLM успешно ответила валидным JSON'
+    }
+  };
 }
 
 function applyAiSelection(aiPlan, fallbackSelection) {
@@ -454,18 +510,95 @@ async function planTour(request) {
   }
 
   let aiPlan = null;
+  let aiDiagnostic = null;
   try {
-    aiPlan = await callAiPlanner(request, fallback.candidates);
+    const aiResult = await callAiPlanner(request, fallback.candidates);
+    aiPlan = aiResult?.plan || null;
+    aiDiagnostic = aiResult?.diagnostic || null;
   } catch (err) {
     console.error('AI planner error:', err.message);
+    aiDiagnostic = {
+      mode: 'fallback',
+      reason: `Ошибка вызова LLM: ${err.message}`,
+      checkedAt: new Date().toISOString()
+    };
   }
 
   const selection = applyAiSelection(aiPlan, fallback);
   const tour = assembleTour(store, request, selection);
   tour.aiUsed = Boolean(aiPlan);
+  tour.aiDiagnostic = aiDiagnostic || {
+    mode: 'fallback',
+    reason: 'LLM не вызывалась',
+    checkedAt: new Date().toISOString()
+  };
   store.tours.unshift(tour);
   await writeJson(storePath, store);
   return { tour, candidates: fallback.candidates };
+}
+
+async function testAiConnection() {
+  const creds = await loadAiCreds();
+  const systemPrompt = await loadSystemPrompt(creds);
+  const diagnostic = {
+    apiUrl: creds.AI_API_URL,
+    requestUrl: resolveChatCompletionsUrl(creds.AI_API_URL),
+    model: creds.AI_API_MODEL,
+    hasKey: Boolean(creds.AI_API_KEY),
+    checkedAt: new Date().toISOString()
+  };
+
+  if (!creds.AI_API_KEY || creds.AI_API_KEY === 'your_key') {
+    return {
+      ok: false,
+      ...diagnostic,
+      message: 'AI_API_KEY не указан'
+    };
+  }
+
+  try {
+    const response = await fetch(resolveChatCompletionsUrl(creds.AI_API_URL), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${creds.AI_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: creds.AI_API_MODEL,
+        messages: [
+          { role: 'system', content: systemPrompt || 'Ты отвечаешь только JSON.' },
+          { role: 'user', content: 'Верни JSON {"ok":true,"message":"connected"} без markdown.' }
+        ],
+        temperature: 0,
+        max_tokens: 80
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => '');
+      return {
+        ok: false,
+        ...diagnostic,
+        message: `LLM API вернул HTTP ${response.status}`,
+        errorPreview: errorText.slice(0, 300)
+      };
+    }
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content || '';
+    return {
+      ok: true,
+      ...diagnostic,
+      message: 'Подключение работает: LLM ответила',
+      responsePreview: content.slice(0, 300)
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      ...diagnostic,
+      message: `Не удалось вызвать LLM: ${err.message}`
+    };
+  }
 }
 
 function updateSelection(store, tour, body) {
@@ -600,6 +733,10 @@ async function handleApi(req, res, url) {
       await writeFile(internalPromptPath, body.AI_SYSTEM_PROMPT, 'utf-8');
     }
     return sendJson(res, 200, { message: 'Настройки AI сохранены' });
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/admin/ai-test') {
+    return sendJson(res, 200, await testAiConnection());
   }
 
   const catalogMatch = url.pathname.match(/^\/api\/admin\/catalog\/(enterprises|foodPlaces|accommodations|transportCompanies)$/);

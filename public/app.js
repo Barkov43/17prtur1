@@ -5,6 +5,8 @@ const state = {
   currentTour: null,
   publicTour: null,
   aiCreds: null,
+  aiTestResult: null,
+  aiTesting: false,
   loading: false,
   message: ''
 };
@@ -231,12 +233,25 @@ function renderTourResult(tour) {
       ${renderTimeline(tour.program)}
       <h3>Почему выбран этот тур</h3>
       <p class="muted">${escapeHtml(tour.rationale)}</p>
-      ${tour.aiUsed ? '<span class="badge">LLM использовалась</span>' : '<span class="badge">Fallback по правилам</span>'}
+      ${renderAiDiagnostic(tour)}
       ${renderManualEdit(tour)}
       <div class="actions" style="margin-top:14px">
         <a class="btn primary" href="${tour.proposalUrl}" target="_blank">Открыть ссылку клиента</a>
         <button class="btn ghost" data-print>PDF через печать</button>
       </div>
+    </div>
+  `;
+}
+
+function renderAiDiagnostic(tour) {
+  const diagnostic = tour.aiDiagnostic || {};
+  const isLlm = tour.aiUsed || diagnostic.mode === 'llm';
+  return `
+    <div class="notice" style="margin:12px 0">
+      <strong>${isLlm ? 'LLM подключилась' : 'Fallback по правилам'}</strong><br>
+      <span>${escapeHtml(diagnostic.reason || (isLlm ? 'Модель использовалась при подборе.' : 'Модель не использовалась при подборе.'))}</span>
+      ${diagnostic.model ? `<br><span class="muted">Модель: ${escapeHtml(diagnostic.model)}</span>` : ''}
+      ${diagnostic.errorPreview ? `<br><span class="muted">Ответ API: ${escapeHtml(diagnostic.errorPreview)}</span>` : ''}
     </div>
   `;
 }
@@ -391,7 +406,7 @@ function renderAiSettings() {
     <form id="ai-form" class="panel form-grid">
       <h2>OpenAI-compatible Chat Completions</h2>
       <div class="field">
-        <label>API URL</label>
+        <label>API URL или base URL</label>
         <input name="AI_API_URL" value="${escapeHtml(state.aiCreds.AI_API_URL)}" />
       </div>
       <div class="row">
@@ -409,10 +424,28 @@ function renderAiSettings() {
         <textarea name="AI_SYSTEM_PROMPT">${escapeHtml(state.aiCreds.AI_SYSTEM_PROMPT || '')}</textarea>
       </div>
       <div class="notice">Если ключ не указан или провайдер недоступен, MVP собирает тур правилами и помечает результат как fallback.</div>
+      ${renderAiTestResult()}
       <div class="actions">
         <button class="btn primary" type="submit">Сохранить настройки</button>
+        <button class="btn ghost" type="button" data-ai-test>${state.aiTesting ? 'Проверяю...' : 'Проверить подключение'}</button>
       </div>
     </form>
+  `;
+}
+
+function renderAiTestResult() {
+  if (!state.aiTestResult) return '';
+  const result = state.aiTestResult;
+  return `
+    <div class="notice">
+      <strong>${result.ok ? 'Подключение работает' : 'Подключение не подтверждено'}</strong><br>
+      ${escapeHtml(result.message || '')}
+      <br><span class="muted">Модель: ${escapeHtml(result.model || '')}</span>
+      ${result.requestUrl ? `<br><span class="muted">Endpoint: ${escapeHtml(result.requestUrl)}</span>` : ''}
+      <br><span class="muted">Ключ сохранён: ${result.hasKey ? 'да' : 'нет'}</span>
+      ${result.responsePreview ? `<br><span class="muted">Ответ: ${escapeHtml(result.responsePreview)}</span>` : ''}
+      ${result.errorPreview ? `<br><span class="muted">Ошибка API: ${escapeHtml(result.errorPreview)}</span>` : ''}
+    </div>
   `;
 }
 
@@ -435,6 +468,7 @@ function bindEvents() {
   document.querySelector('#selection-form')?.addEventListener('submit', handleSelectionSubmit);
   document.querySelector('[data-print]')?.addEventListener('click', () => window.print());
   document.querySelector('#ai-form')?.addEventListener('submit', handleAiSubmit);
+  document.querySelector('[data-ai-test]')?.addEventListener('click', handleAiTest);
 }
 
 async function handleTourSubmit(event) {
@@ -499,8 +533,23 @@ async function handleAiSubmit(event) {
   const payload = Object.fromEntries(new FormData(event.currentTarget).entries());
   await api.put('/api/admin/ai-creds', payload);
   state.aiCreds = null;
+  state.aiTestResult = null;
   state.message = 'Настройки AI сохранены';
   render();
+}
+
+async function handleAiTest() {
+  state.aiTesting = true;
+  state.aiTestResult = null;
+  render();
+  try {
+    state.aiTestResult = await api.post('/api/admin/ai-test', {});
+  } catch (err) {
+    state.aiTestResult = { ok: false, message: err.message };
+  } finally {
+    state.aiTesting = false;
+    render();
+  }
 }
 
 async function loadPublicTour(code) {
