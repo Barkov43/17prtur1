@@ -128,6 +128,8 @@ function scoreEnterprise(enterprise, request) {
   const haystack = tokenize(`${enterprise.name} ${enterprise.industry} ${enterprise.description} ${enterprise.tags.join(' ')}`);
   let score = 0;
 
+  if (isEnterpriseMentioned(enterprise, request)) score += 1000;
+
   for (const word of interests) {
     if (haystack.includes(word)) score += 12;
   }
@@ -147,6 +149,36 @@ function scoreEnterprise(enterprise, request) {
 
   score += Math.max(0, enterprise.capacity - request.groupSize) / 10;
   return Math.round(score);
+}
+
+function enterpriseMentionKeywords(enterprise) {
+  const generic = new Set(['завод', 'музей', 'зао', 'ооо', 'ао', 'фабрика', 'производственный', 'холдинг', 'истории']);
+  return tokenize(`${enterprise.name} ${enterprise.externalId || ''}`)
+    .filter((word) => word.length > 3 && !generic.has(word));
+}
+
+function isEnterpriseMentioned(enterprise, request) {
+  const interestTokens = tokenize(request.interests || '');
+  if (!interestTokens.length) return false;
+  return enterpriseMentionKeywords(enterprise).some((word) => interestTokens.includes(word));
+}
+
+function getRequestedEnterpriseNotes(store, request) {
+  const groupSize = Number(request.groupSize || 0);
+  return store.enterprises
+    .filter((enterprise) => isEnterpriseMentioned(enterprise, request))
+    .map((enterprise) => {
+      const reasons = [];
+      const format = chooseTourFormat(enterprise, request);
+      if (normalize(enterprise.city) !== normalize(request.city)) reasons.push(`город объекта: ${enterprise.city}`);
+      if (!enterprise.allowedGroups.includes(request.groupType)) reasons.push(`не подходит для группы "${groupLabel(request.groupType)}"`);
+      if (enterprise.capacity < groupSize) reasons.push(`вместимость ${enterprise.capacity} меньше группы ${groupSize}`);
+      if ((enterprise.minGroup || 1) > groupSize) reasons.push(`минимальная группа ${enterprise.minGroup}`);
+      if (!enterpriseCanStart(enterprise, request, format)) reasons.push(`нет подходящего старта после ${request.startTime || '09:00'}`);
+      return reasons.length
+        ? `Запрошенный объект "${enterprise.name}" не включён: ${reasons.join(', ')}.`
+        : `Запрошенный объект "${enterprise.name}" получил приоритет при подборе.`;
+    });
 }
 
 function chooseTourFormat(enterprise, request) {
@@ -227,6 +259,7 @@ function getCandidates(store, request) {
 
 function chooseByRules(store, request) {
   const candidates = getCandidates(store, request);
+  const requestedNotes = getRequestedEnterpriseNotes(store, request);
   const duration = Number(request.durationHours || 5);
   const maxEnterprises = duration >= 7 ? 3 : duration >= 5 ? 2 : 1;
   const selectedEnterprises = candidates.enterprises.slice(0, maxEnterprises);
@@ -239,7 +272,8 @@ function chooseByRules(store, request) {
     selectedFood,
     selectedAccommodation,
     selectedTransport,
-    candidates
+    candidates,
+    requestedNotes
   };
 }
 
@@ -616,9 +650,9 @@ function assembleTour(store, request, selection, previous = {}) {
     },
     program,
     pricing,
-    rationale: makeRationale(selection, request, selection.aiRationale),
+    rationale: [makeRationale(selection, request, selection.aiRationale), ...(selection.requestedNotes || [])].join(' '),
     aiSummary: selection.aiSummary || '',
-    risks: selection.risks || [],
+    risks: [...(selection.risks || []), ...(selection.requestedNotes || [])],
     proposalUrl: `/proposal/${publicCode}`
   };
   tour.proposalText = composeProposal(tour);
