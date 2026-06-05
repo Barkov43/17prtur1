@@ -1,5 +1,5 @@
 const state = {
-  tab: 'builder',
+  tab: 'landing',
   catalog: null,
   tours: [],
   currentTour: null,
@@ -83,6 +83,7 @@ function render() {
           <span>MVP для сборки промышленного тура под группу за 5-10 минут</span>
         </div>
         <nav class="nav">
+          ${navButton('landing', 'О проекте')}
           ${navButton('builder', 'Сборка тура')}
           ${navButton('tours', 'Созданные туры')}
           ${navButton('catalog', 'Справочники')}
@@ -90,8 +91,9 @@ function render() {
         </nav>
       </aside>
       <main class="main">
-        ${renderTopbar()}
+        ${state.tab === 'landing' ? '' : renderTopbar()}
         ${state.message ? `<div class="notice">${escapeHtml(state.message)}</div>` : ''}
+        ${state.tab === 'landing' ? renderLanding() : ''}
         ${state.tab === 'builder' ? renderBuilder() : ''}
         ${state.tab === 'tours' ? renderTours() : ''}
         ${state.tab === 'catalog' ? renderCatalog() : ''}
@@ -108,12 +110,14 @@ function navButton(tab, label) {
 
 function renderTopbar() {
   const title = {
+    landing: 'Нейросети в промышленном туризме',
     builder: 'Сборка нового тура',
     tours: 'Созданные предложения',
     catalog: 'Справочники маршрутизации',
     ai: 'Настройки внутренней LLM'
   }[state.tab];
   const subtitle = {
+    landing: 'MVP для туроператора: подбор предприятий, транспорта, питания, размещения и стоимости промышленного тура под конкретную группу.',
     builder: 'Туроператор вводит параметры группы, система подбирает объекты, транспорт, питание, размещение и считает стоимость.',
     tours: 'Черновики и отправленные предложения с публичной ссылкой для клиента.',
     catalog: 'Тестовая база предприятий, питания, размещения и транспорта для MVP.',
@@ -127,6 +131,44 @@ function renderTopbar() {
       </div>
       <span class="badge">Роль: туроператор MVP</span>
     </div>
+  `;
+}
+
+function renderLanding() {
+  return `
+    <section class="landing">
+      <div class="landing-hero">
+        <img src="/assets/industrial-tour-hero.png" alt="Промышленный туризм и AI-планирование маршрута" />
+        <div class="landing-hero-content">
+          <span class="landing-kicker">MVP для туроператоров</span>
+          <h2>Промышленный тур под группу за 5-10 минут</h2>
+          <p>Сервис собирает готовое предложение: предприятия, транспорт, питание, размещение, программа по минутам, стоимость и ссылка для бронирования.</p>
+          <div class="actions">
+            <button class="btn primary" data-start-builder>Собрать тур</button>
+            <button class="btn ghost" data-tab="catalog">Открыть базу объектов</button>
+          </div>
+        </div>
+      </div>
+      <div class="landing-stats">
+        <div><strong>1-3</strong><span>предприятия в маршруте</span></div>
+        <div><strong>3/5/7</strong><span>часов дневной программы</span></div>
+        <div><strong>AI + правила</strong><span>подбор с проверкой ограничений</span></div>
+      </div>
+      <div class="landing-sections">
+        <article>
+          <h3>Проблема</h3>
+          <p>Подготовка промышленного тура вручную занимает много времени: нужно сверить предприятия, вместимость, питание, транспорт, размещение и бюджет.</p>
+        </article>
+        <article>
+          <h3>Решение</h3>
+          <p>Туроператор вводит город, тип группы, численность, длительность и интересы. Система собирает маршрут и объясняет выбор объектов.</p>
+        </article>
+        <article>
+          <h3>MVP</h3>
+          <p>В проекте есть конструктор тура, справочники объектов, LLM-подбор, ручное редактирование, публичная ссылка и эмуляция бронирования.</p>
+        </article>
+      </div>
+    </section>
   `;
 }
 
@@ -464,6 +506,10 @@ function bindEvents() {
   });
 
   document.querySelector('#tour-form')?.addEventListener('submit', handleTourSubmit);
+  document.querySelector('[data-start-builder]')?.addEventListener('click', () => {
+    state.tab = 'builder';
+    render();
+  });
   document.querySelector('[data-demo]')?.addEventListener('click', fillBusinessDemo);
   document.querySelector('#selection-form')?.addEventListener('submit', handleSelectionSubmit);
   document.querySelector('[data-print]')?.addEventListener('click', () => window.print());
