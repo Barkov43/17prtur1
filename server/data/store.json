@@ -1,0 +1,580 @@
+{
+  "users": [
+    {
+      "id": 1,
+      "name": "Демо туроператор",
+      "email": "operator@example.ru",
+      "role": "operator"
+    },
+    {
+      "id": 2,
+      "name": "Администратор",
+      "email": "admin@example.ru",
+      "role": "admin"
+    }
+  ],
+  "enterprises": [
+    {
+      "id": 1,
+      "externalId": "zdrava",
+      "city": "Киров",
+      "name": "Производственный холдинг «Здрава»",
+      "address": "г. Киров, ул. Московская, 112",
+      "industry": "Пищевая промышленность",
+      "objectType": "enterprise",
+      "description": "Пищевая промышленность. Форматы: просто экскурсия, 60 мин, 0 руб./чел.",
+      "tags": [
+        "Пищевая промышленность",
+        "школьники",
+        "студенты",
+        "бизнес-делегация",
+        "просто экскурсия",
+        "бесплатно"
+      ],
+      "durationMinutes": 60,
+      "capacity": 25,
+      "minGroup": 6,
+      "maxGroup": 25,
+      "prices": {
+        "school": 0,
+        "student": 0,
+        "business": 0
+      },
+      "coordinates": {
+        "lat": 58.601214,
+        "lng": 49.621894
+      },
+      "tourFormats": [
+        {
+          "name": "просто экскурсия",
+          "duration_min": 60,
+          "price_per_person": 0
+        }
+      ],
+      "isFree": true,
+      "workStart": "09:00",
+      "workEnd": "17:00",
+      "availableStarts": [
+        "10:00",
+        "12:00",
+        "14:00"
+      ],
+      "allowedGroups": [
+        "school",
+        "student",
+        "business"
+      ]
+    },
+    {
+      "id": 2,
+      "externalId": "vesna",
+      "city": "Киров",
+      "name": "Фабрика игрушек «Весна»",
+      "address": "г. Киров, ул. Карла Либкнехта, 129",
+      "industry": "Лёгкая промышленность",
+      "objectType": "enterprise",
+      "description": "Лёгкая промышленность. Форматы: обзорная экскурсия, 60 мин, 300 руб./чел.; с викториной, 90 мин, 350 руб./чел.; с разрисовкой игрушки, 90 мин, 450 руб./чел.",
+      "tags": [
+        "Лёгкая промышленность",
+        "школьники",
+        "студенты",
+        "обзорная экскурсия",
+        "с викториной",
+        "с разрисовкой игрушки",
+        "платно"
+      ],
+      "durationMinutes": 60,
+      "capacity": 25,
+      "minGroup": 6,
+      "maxGroup": 25,
+      "prices": {
+        "school": 300,
+        "student": 300,
+        "business": 300
+      },
+      "coordinates": {
+        "lat": 58.590939,
+        "lng": 49.664582
+      },
+      "tourFormats": [
+        {
+          "name": "обзорная экскурсия",
+          "duration_min": 60,
+          "price_per_person": 300
+        },
+        {
+          "name": "с викториной",
+          "duration_min": 90,
+          "price_per_person": 350
+        },
+        {
+          "name": "с разрисовкой игрушки",
+          "duration_min": 90,
+          "price_per_person": 450
+        }
+      ],
+      "isFree": false,
+      "workStart": "09:00",
+      "workEnd": "19:00",
+      "availableStarts": [
+        "10:00",
+        "12:00",
+        "14:00"
+      ],
+      "allowedGroups": [
+        "school",
+        "student"
+      ]
+    },
+    {
+      "id": 3,
+      "externalId": "avitec",
+      "city": "Киров",
+      "name": "Завод «Авитек»",
+      "address": "г. Киров, Октябрьский проспект, 1А",
+      "industry": "Машиностроение",
+      "objectType": "enterprise",
+      "description": "Машиностроение. Форматы: просто экскурсия, 60 мин, 0 руб./чел.",
+      "tags": [
+        "Машиностроение",
+        "школьники",
+        "студенты",
+        "бизнес-делегация",
+        "просто экскурсия",
+        "бесплатно"
+      ],
+      "durationMinutes": 60,
+      "capacity": 25,
+      "minGroup": 4,
+      "maxGroup": 25,
+      "prices": {
+        "school": 0,
+        "student": 0,
+        "business": 0
+      },
+      "coordinates": {
+        "lat": 58.640867,
+        "lng": 49.608833
+      },
+      "tourFormats": [
+        {
+          "name": "просто экскурсия",
+          "duration_min": 60,
+          "price_per_person": 0
+        }
+      ],
+      "isFree": true,
+      "workStart": "08:00",
+      "workEnd": "17:00",
+      "availableStarts": [
+        "09:00",
+        "11:00",
+        "13:00"
+      ],
+      "allowedGroups": [
+        "school",
+        "student",
+        "business"
+      ]
+    },
+    {
+      "id": 4,
+      "externalId": "milk",
+      "city": "Киров",
+      "name": "ЗАО «Кировский молочный комбинат» (Музей молока)",
+      "address": "г. Киров, ул. Воровского, 105",
+      "industry": "Пищевая промышленность",
+      "objectType": "enterprise",
+      "description": "Пищевая промышленность. Форматы: экскурсия с молочным набором, 60 мин, 488 руб./чел.",
+      "tags": [
+        "Пищевая промышленность",
+        "школьники",
+        "студенты",
+        "бизнес-делегация",
+        "семейные",
+        "экскурсия с молочным набором",
+        "платно"
+      ],
+      "durationMinutes": 60,
+      "capacity": 25,
+      "minGroup": 6,
+      "maxGroup": 25,
+      "prices": {
+        "school": 488,
+        "student": 488,
+        "business": 488
+      },
+      "coordinates": {
+        "lat": 58.593842,
+        "lng": 49.637444
+      },
+      "tourFormats": [
+        {
+          "name": "экскурсия с молочным набором",
+          "duration_min": 60,
+          "price_per_person": 488,
+          "note": "В стоимость входит фирменный молочный набор"
+        }
+      ],
+      "isFree": false,
+      "workStart": "09:00",
+      "workEnd": "18:00",
+      "availableStarts": [
+        "10:00",
+        "12:00",
+        "14:00"
+      ],
+      "allowedGroups": [
+        "school",
+        "student",
+        "business"
+      ]
+    },
+    {
+      "id": 5,
+      "externalId": "vyatich",
+      "city": "Киров",
+      "name": "Завод «Вятич»",
+      "address": "г. Киров, ул. Блюхера, 63",
+      "industry": "Пищевая промышленность",
+      "objectType": "enterprise",
+      "description": "Пищевая промышленность. Форматы: познавательная программа для детей, 60 мин, 0 руб./чел.",
+      "tags": [
+        "Пищевая промышленность",
+        "школьники",
+        "студенты",
+        "познавательная программа для детей",
+        "бесплатно"
+      ],
+      "durationMinutes": 60,
+      "capacity": 20,
+      "minGroup": 8,
+      "maxGroup": 20,
+      "prices": {
+        "school": 0,
+        "student": 0,
+        "business": 0
+      },
+      "coordinates": {
+        "lat": 58.582369,
+        "lng": 49.669703
+      },
+      "tourFormats": [
+        {
+          "name": "познавательная программа для детей",
+          "duration_min": 60,
+          "price_per_person": 0,
+          "note": "Для школьников — бесплатно. Дегустация только для взрослых групп."
+        }
+      ],
+      "isFree": true,
+      "workStart": "10:00",
+      "workEnd": "18:00",
+      "availableStarts": [
+        "11:00",
+        "14:00"
+      ],
+      "allowedGroups": [
+        "school",
+        "student"
+      ]
+    },
+    {
+      "id": 6,
+      "externalId": "kriollo",
+      "city": "Киров",
+      "name": "Музей истории шоколада «Криолло»",
+      "address": "г. Киров, ул. Спасская, д.15",
+      "industry": "Пищевая промышленность",
+      "objectType": "culture",
+      "description": "Пищевая промышленность. Форматы: экскурсия с мастер-классом, 90 мин, 500 руб./чел.; экскурсия с дегустацией, 60 мин, 400 руб./чел.; экскурсия с игрой, 90 мин, 450 руб./чел.",
+      "tags": [
+        "Пищевая промышленность",
+        "школьники",
+        "студенты",
+        "бизнес-делегация",
+        "экскурсия с мастер-классом",
+        "экскурсия с дегустацией",
+        "экскурсия с игрой",
+        "платно"
+      ],
+      "durationMinutes": 60,
+      "capacity": 25,
+      "minGroup": 5,
+      "maxGroup": 25,
+      "prices": {
+        "school": 400,
+        "student": 400,
+        "business": 400
+      },
+      "coordinates": {
+        "lat": 58.598,
+        "lng": 49.6567
+      },
+      "tourFormats": [
+        {
+          "name": "экскурсия с мастер-классом",
+          "duration_min": 90,
+          "price_per_person": 500
+        },
+        {
+          "name": "экскурсия с дегустацией",
+          "duration_min": 60,
+          "price_per_person": 400
+        },
+        {
+          "name": "экскурсия с игрой",
+          "duration_min": 90,
+          "price_per_person": 450
+        }
+      ],
+      "isFree": false,
+      "workStart": "10:00",
+      "workEnd": "19:00",
+      "availableStarts": [
+        "10:00",
+        "12:00",
+        "14:00",
+        "16:00"
+      ],
+      "allowedGroups": [
+        "school",
+        "student",
+        "business"
+      ]
+    },
+    {
+      "id": 7,
+      "externalId": "artiko",
+      "city": "Киров",
+      "name": "Музей мороженого «Артико»",
+      "address": "г. Киров, ул. Спасская, 15",
+      "industry": "Пищевая промышленность",
+      "objectType": "culture",
+      "description": "Пищевая промышленность. Форматы: экскурсия с мастер-классом, 90 мин, 500 руб./чел.; экскурсия с дегустацией, 60 мин, 400 руб./чел.",
+      "tags": [
+        "Пищевая промышленность",
+        "школьники",
+        "студенты",
+        "экскурсия с мастер-классом",
+        "экскурсия с дегустацией",
+        "платно"
+      ],
+      "durationMinutes": 60,
+      "capacity": 25,
+      "minGroup": 5,
+      "maxGroup": 25,
+      "prices": {
+        "school": 400,
+        "student": 400,
+        "business": 400
+      },
+      "coordinates": {
+        "lat": 58.598,
+        "lng": 49.6567
+      },
+      "tourFormats": [
+        {
+          "name": "экскурсия с мастер-классом",
+          "duration_min": 90,
+          "price_per_person": 500
+        },
+        {
+          "name": "экскурсия с дегустацией",
+          "duration_min": 60,
+          "price_per_person": 400
+        }
+      ],
+      "isFree": false,
+      "workStart": "10:00",
+      "workEnd": "19:00",
+      "availableStarts": [
+        "10:00",
+        "12:00",
+        "14:00",
+        "16:00"
+      ],
+      "allowedGroups": [
+        "school",
+        "student"
+      ]
+    }
+  ],
+  "foodPlaces": [
+    {
+      "id": 1,
+      "externalId": "bolshaya_stolovaya",
+      "city": "Киров",
+      "name": "Большая столовая",
+      "address": "г. Киров, ул. Комсомольская, д. 42б",
+      "type": "столовая",
+      "pricePerPerson": 300,
+      "minDurationMinutes": 40,
+      "capacity": 60,
+      "phone": "8 (8332) 79-10-73",
+      "coordinates": {
+        "lat": 58.578494,
+        "lng": 49.64985
+      },
+      "workStart": "09:00",
+      "workEnd": "20:00",
+      "tags": [
+        "питание",
+        "обед",
+        "столовая"
+      ]
+    },
+    {
+      "id": 2,
+      "externalId": "seli_poeli",
+      "city": "Киров",
+      "name": "Сели-поели",
+      "address": "г. Киров, Профсоюзная ул., 68",
+      "type": "столовая",
+      "pricePerPerson": 300,
+      "minDurationMinutes": 40,
+      "capacity": 60,
+      "phone": "8 (8332) 49-11-49",
+      "coordinates": {
+        "lat": 58.614817,
+        "lng": 49.666343
+      },
+      "workStart": "09:00",
+      "workEnd": "21:00",
+      "tags": [
+        "питание",
+        "обед",
+        "столовая"
+      ]
+    },
+    {
+      "id": 3,
+      "externalId": "cezar",
+      "city": "Киров",
+      "name": "Столовая «Цезарь»",
+      "address": "г. Киров, ул. Свободы, 158",
+      "type": "столовая",
+      "pricePerPerson": 300,
+      "minDurationMinutes": 40,
+      "capacity": 60,
+      "phone": "7 (8332) 470-490",
+      "coordinates": {
+        "lat": 58.583594,
+        "lng": 49.679997
+      },
+      "workStart": "08:00",
+      "workEnd": "20:00",
+      "tags": [
+        "питание",
+        "обед",
+        "столовая"
+      ]
+    }
+  ],
+  "accommodations": [
+    {
+      "id": 1,
+      "externalId": "placeholder_kirov_group_hotel",
+      "city": "Киров",
+      "name": "Размещение группы под запрос",
+      "address": "Киров, уточняется при подтверждении",
+      "type": "гостиница",
+      "pricePerPerson": 1800,
+      "capacity": 60,
+      "tags": [
+        "группы",
+        "ночёвка",
+        "MVP-заглушка"
+      ]
+    }
+  ],
+  "transportCompanies": [
+    {
+      "id": 1,
+      "externalId": "kirov_trans",
+      "city": "Киров",
+      "name": "Киров-Транс",
+      "transportType": "автобус",
+      "capacity": 55,
+      "capacityMin": 1,
+      "capacityMax": 55,
+      "pricePerHour": 2100,
+      "pricePerKm": 0,
+      "minHours": 3,
+      "phone": "8 (958) 111-04-53"
+    },
+    {
+      "id": 2,
+      "externalId": "kondor",
+      "city": "Киров",
+      "name": "Кондор",
+      "transportType": "автобус",
+      "capacity": 53,
+      "capacityMin": 8,
+      "capacityMax": 53,
+      "pricePerHour": 2000,
+      "pricePerKm": 0,
+      "minHours": 3,
+      "phone": "7(8332) 42-17-17"
+    },
+    {
+      "id": 3,
+      "externalId": "prestige",
+      "city": "Киров",
+      "name": "Трансфер Престиж",
+      "transportType": "автобус",
+      "capacity": 51,
+      "capacityMin": 17,
+      "capacityMax": 51,
+      "pricePerHour": 2000,
+      "pricePerKm": 0,
+      "minHours": 3,
+      "phone": "8(8332) 26-22-26"
+    },
+    {
+      "id": 4,
+      "externalId": "avtobus1",
+      "city": "Киров",
+      "name": "Автобус1",
+      "transportType": "автобус",
+      "capacity": 51,
+      "capacityMin": 18,
+      "capacityMax": 51,
+      "pricePerHour": 2500,
+      "pricePerKm": 0,
+      "minHours": 3,
+      "phone": "8(922) 124-19-41"
+    },
+    {
+      "id": 5,
+      "externalId": "avtokirov",
+      "city": "Киров",
+      "name": "AvtoKirov",
+      "transportType": "автобус",
+      "capacity": 55,
+      "capacityMin": 17,
+      "capacityMax": 55,
+      "pricePerHour": 2000,
+      "pricePerKm": 0,
+      "minHours": 3,
+      "phone": "(8332) 266-745"
+    },
+    {
+      "id": 6,
+      "externalId": "letuchiy",
+      "city": "Киров",
+      "name": "Летучий корабль",
+      "transportType": "автобус",
+      "capacity": 53,
+      "capacityMin": 34,
+      "capacityMax": 53,
+      "pricePerHour": 3000,
+      "pricePerKm": 0,
+      "minHours": 3,
+      "phone": "7 (8332) 255-888"
+    }
+  ],
+  "tours": [],
+  "bookings": [],
+  "notifications": []
+}
