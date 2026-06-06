@@ -12,6 +12,7 @@ services:
       AI_API_URL: "${AI_API_URL:-}"
       AI_API_MODEL: "${AI_API_MODEL:-}"
       AI_API_KEY: "${AI_API_KEY:-}"
+      OSRM_URL: "${OSRM_URL:-https://router.project-osrm.org}"
     volumes:
       - app_data:/app/server/data
 

@@ -12,6 +12,12 @@ const storePath = path.join(dataDir, 'store.json');
 const aiCredPath = path.join(dataDir, 'ai-cred.json');
 const internalPromptPath = path.join(dataDir, 'internal-llm-prompt.md');
 const PORT = Number(process.env.PORT || 4173);
+const OSRM_URL = String(process.env.OSRM_URL || 'https://router.project-osrm.org').replace(/\/+$/, '');
+
+const cityCenters = {
+  'киров': { lat: 58.6035, lng: 49.6679 },
+  'пермь': { lat: 58.0105, lng: 56.2502 }
+};
 
 const defaultAiCreds = {
   AI_API_URL: 'https://api.openai.com/v1/chat/completions',
@@ -98,6 +104,91 @@ function minutesBetween(start, end) {
 function timeToMinutes(time) {
   const [h, m] = String(time || '00:00').split(':').map(Number);
   return h * 60 + m;
+}
+
+function validCoordinates(value) {
+  return value
+    && Number.isFinite(Number(value.lat))
+    && Number.isFinite(Number(value.lng));
+}
+
+function routeStops(selection, request) {
+  const meetingCoordinates = validCoordinates(request.meetingCoordinates)
+    ? request.meetingCoordinates
+    : cityCenters[normalize(request.city)];
+  const stops = [
+    { type: 'meeting', name: request.meetingPoint || 'Точка сбора', coordinates: meetingCoordinates }
+  ];
+
+  selection.selectedEnterprises.forEach((enterprise, index) => {
+    stops.push({ type: 'enterprise', name: enterprise.name, coordinates: enterprise.coordinates });
+    if (selection.selectedFood && index === 0 && selection.selectedEnterprises.length > 1) {
+      stops.push({ type: 'food', name: selection.selectedFood.name, coordinates: selection.selectedFood.coordinates });
+    }
+  });
+
+  if (selection.selectedFood && selection.selectedEnterprises.length === 1) {
+    stops.push({ type: 'food', name: selection.selectedFood.name, coordinates: selection.selectedFood.coordinates });
+  }
+  if (selection.selectedAccommodation) {
+    stops.push({ type: 'accommodation', name: selection.selectedAccommodation.name, coordinates: selection.selectedAccommodation.coordinates });
+  }
+  stops.push({ type: 'meeting', name: request.meetingPoint || 'Точка сбора', coordinates: meetingCoordinates });
+  return stops;
+}
+
+async function buildOsrmRoute(selection, request) {
+  const stops = routeStops(selection, request);
+  const routableStops = stops.filter((stop) => validCoordinates(stop.coordinates));
+  const fallback = {
+    provider: 'fallback',
+    points: stops.map((stop) => stop.name),
+    stops,
+    distanceKm: null,
+    durationMinutes: null,
+    geometry: null,
+    legs: [],
+    warning: routableStops.length < stops.length ? 'Часть объектов не имеет координат.' : ''
+  };
+  if (routableStops.length < 2) return fallback;
+
+  const coordinates = routableStops
+    .map((stop) => `${Number(stop.coordinates.lng)},${Number(stop.coordinates.lat)}`)
+    .join(';');
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 7000);
+
+  try {
+    const response = await fetch(`${OSRM_URL}/route/v1/driving/${coordinates}?overview=full&geometries=geojson&steps=false`, {
+      signal: controller.signal,
+      headers: { 'User-Agent': '17prtur-industrial-tour-mvp/1.0' }
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    const route = data.routes?.[0];
+    if (!route) throw new Error(data.message || 'Маршрут не найден');
+    return {
+      provider: 'osrm',
+      points: stops.map((stop) => stop.name),
+      stops,
+      routedStops: routableStops,
+      distanceKm: Math.round((route.distance / 1000) * 10) / 10,
+      durationMinutes: Math.max(1, Math.round(route.duration / 60)),
+      geometry: route.geometry,
+      legs: (route.legs || []).map((leg) => ({
+        distanceKm: Math.round((leg.distance / 1000) * 10) / 10,
+        durationMinutes: Math.max(1, Math.round(leg.duration / 60))
+      })),
+      warning: routableStops.length < stops.length ? 'Объекты без координат не включены в расчёт OSRM.' : ''
+    };
+  } catch (error) {
+    return {
+      ...fallback,
+      warning: `OSRM недоступен: ${error.name === 'AbortError' ? 'превышено время ожидания' : error.message}`
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 async function loadSystemPrompt(creds) {
@@ -286,39 +377,48 @@ function chooseByRules(store, request) {
   };
 }
 
-function buildProgram(selection, request) {
+function buildProgram(selection, request, route) {
   const program = [];
   let time = request.startTime || '09:00';
+  let routeLegIndex = 0;
   const push = (durationMinutes, title, description) => {
     const end = addMinutes(time, durationMinutes);
     program.push({ time, endTime: end, durationMinutes, title, description });
     time = end;
   };
+  const pushTravel = (fallbackMinutes, title, description) => {
+    const leg = route?.legs?.[routeLegIndex];
+    routeLegIndex += 1;
+    const duration = leg?.durationMinutes || fallbackMinutes;
+    const distance = leg?.distanceKm ? ` ${leg.distanceKm} км.` : '';
+    push(duration, title, `${description}${distance}`);
+  };
 
   push(15, 'Сбор группы', `Точка сбора: ${request.meetingPoint || 'по согласованию'}. Группа: ${groupLabel(request.groupType)}, ${request.groupSize} чел.`);
 
   selection.selectedEnterprises.forEach((enterprise, index) => {
-    push(index === 0 ? 30 : 20, 'Переезд', `Маршрут до объекта: ${enterprise.name}, ${enterprise.address}.`);
+    pushTravel(index === 0 ? 30 : 20, 'Переезд', `Маршрут до объекта: ${enterprise.name}, ${enterprise.address}.`);
     const formatName = enterprise.selectedFormat?.name || 'экскурсия';
     push(enterprise.durationMinutes, enterprise.name, `${enterprise.industry}. Формат: ${formatName}. ${enterprise.description}`);
 
     const shouldEat = selection.selectedFood && index === 0 && selection.selectedEnterprises.length > 1;
     if (shouldEat) {
-      push(15, 'Переезд к питанию', `${selection.selectedFood.name}, ${selection.selectedFood.address}.`);
+      pushTravel(15, 'Переезд к питанию', `${selection.selectedFood.name}, ${selection.selectedFood.address}.`);
       push(selection.selectedFood.minDurationMinutes, 'Питание группы', `${selection.selectedFood.type}, ориентир ${selection.selectedFood.pricePerPerson} ₽ на человека.`);
     }
   });
 
   if (selection.selectedFood && selection.selectedEnterprises.length === 1) {
-    push(15, 'Переезд к питанию', `${selection.selectedFood.name}, ${selection.selectedFood.address}.`);
+    pushTravel(15, 'Переезд к питанию', `${selection.selectedFood.name}, ${selection.selectedFood.address}.`);
     push(selection.selectedFood.minDurationMinutes, 'Питание группы', `${selection.selectedFood.type}, ориентир ${selection.selectedFood.pricePerPerson} ₽ на человека.`);
   }
 
   if (selection.selectedAccommodation) {
+    pushTravel(25, 'Переезд к размещению', `${selection.selectedAccommodation.name}, ${selection.selectedAccommodation.address}.`);
     push(25, 'Размещение', `${selection.selectedAccommodation.name}, ${selection.selectedAccommodation.address}. Ночёвка включена в предложение.`);
   }
 
-  push(30, 'Возвращение', 'Возвращение к точке сбора, подведение итогов поездки.');
+  pushTravel(30, 'Возвращение', 'Возвращение к точке сбора, подведение итогов поездки.');
   return program;
 }
 
@@ -623,8 +723,9 @@ function applyAiSelection(aiPlan, fallbackSelection) {
   };
 }
 
-function assembleTour(store, request, selection, previous = {}) {
-  const program = buildProgram(selection, request);
+async function assembleTour(store, request, selection, previous = {}) {
+  const route = await buildOsrmRoute(selection, request);
+  const program = buildProgram(selection, request, route);
   const pricing = calculatePricing(selection, request);
   const publicCode = previous.publicCode || Math.random().toString(36).slice(2, 10);
   const tour = {
@@ -647,16 +748,7 @@ function assembleTour(store, request, selection, previous = {}) {
       transport: selection.selectedTransport,
       accommodation: selection.selectedAccommodation
     },
-    route: {
-      city: request.city,
-      points: [
-        'Точка сбора',
-        ...selection.selectedEnterprises.map((item) => item.name),
-        selection.selectedFood?.name,
-        selection.selectedAccommodation?.name,
-        'Точка сбора'
-      ].filter(Boolean)
-    },
+    route: { city: request.city, ...route },
     program,
     pricing,
     rationale: [makeRationale(selection, request, selection.aiRationale), ...(selection.requestedNotes || [])].join(' '),
@@ -691,7 +783,7 @@ async function planTour(request) {
   }
 
   const selection = applyAiSelection(aiPlan, fallback);
-  const tour = assembleTour(store, request, selection);
+  const tour = await assembleTour(store, request, selection);
   tour.aiUsed = Boolean(aiPlan);
   tour.aiDiagnostic = aiDiagnostic || {
     mode: 'fallback',
@@ -769,7 +861,7 @@ async function testAiConnection() {
   }
 }
 
-function updateSelection(store, tour, body) {
+async function updateSelection(store, tour, body) {
   const selectedEnterprises = (body.enterpriseIds || tour.selection.enterpriseIds)
     .map((id) => store.enterprises.find((item) => item.id === Number(id)))
     .filter(Boolean);
@@ -809,9 +901,9 @@ async function handleApi(req, res, url) {
       goal: body.goal || 'career',
       interests: body.interests || '',
       overnight: Boolean(body.overnight),
-      startTime: body.startTime || '09:00'
-      ,
-      meetingPoint: body.meetingPoint || 'по согласованию'
+      startTime: body.startTime || '09:00',
+      meetingPoint: body.meetingPoint || 'по согласованию',
+      meetingCoordinates: validCoordinates(body.meetingCoordinates) ? body.meetingCoordinates : null
     };
     const result = await planTour(request);
     if (result.error) return sendError(res, 422, result.error);
@@ -824,7 +916,7 @@ async function handleApi(req, res, url) {
     const id = Number(tourSelectionMatch[1]);
     const index = store.tours.findIndex((item) => item.id === id);
     if (index < 0) return sendError(res, 404, 'Тур не найден');
-    const updated = updateSelection(store, store.tours[index], body);
+    const updated = await updateSelection(store, store.tours[index], body);
     store.tours[index] = updated;
     await writeJson(storePath, store);
     return sendJson(res, 200, { tour: updated });
@@ -907,15 +999,49 @@ async function handleApi(req, res, url) {
     return sendJson(res, 200, await testAiConnection());
   }
 
-  const catalogMatch = url.pathname.match(/^\/api\/admin\/catalog\/(enterprises|foodPlaces|accommodations|transportCompanies)$/);
-  if (req.method === 'POST' && catalogMatch) {
+  const catalogMatch = url.pathname.match(/^\/api\/admin\/catalog\/(enterprises|foodPlaces|accommodations|transportCompanies)(?:\/(\d+))?$/);
+  if (req.method === 'POST' && catalogMatch && !catalogMatch[2]) {
     const collection = catalogMatch[1];
     const body = await readBody(req);
+    if (!String(body.name || '').trim()) return sendError(res, 422, 'Название обязательно');
     const nextId = Math.max(0, ...store[collection].map((item) => item.id)) + 1;
     const item = { id: nextId, ...body };
     store[collection].push(item);
     await writeJson(storePath, store);
     return sendJson(res, 201, { item });
+  }
+
+  if (req.method === 'PUT' && catalogMatch && catalogMatch[2]) {
+    const collection = catalogMatch[1];
+    const id = Number(catalogMatch[2]);
+    const index = store[collection].findIndex((item) => item.id === id);
+    if (index < 0) return sendError(res, 404, 'Объект справочника не найден');
+    const body = await readBody(req);
+    if (!String(body.name || store[collection][index].name || '').trim()) return sendError(res, 422, 'Название обязательно');
+    store[collection][index] = { ...store[collection][index], ...body, id };
+    await writeJson(storePath, store);
+    return sendJson(res, 200, { item: store[collection][index] });
+  }
+
+  if (req.method === 'DELETE' && catalogMatch && catalogMatch[2]) {
+    const collection = catalogMatch[1];
+    const id = Number(catalogMatch[2]);
+    const index = store[collection].findIndex((item) => item.id === id);
+    if (index < 0) return sendError(res, 404, 'Объект справочника не найден');
+    const selectionKey = {
+      enterprises: 'enterpriseIds',
+      foodPlaces: 'foodId',
+      accommodations: 'accommodationId',
+      transportCompanies: 'transportId'
+    }[collection];
+    const used = store.tours.some((tour) => {
+      const value = tour.selection?.[selectionKey];
+      return Array.isArray(value) ? value.includes(id) : value === id;
+    });
+    if (used) return sendError(res, 409, 'Объект используется в сохранённом туре. Сначала замените его в турах.');
+    const [deleted] = store[collection].splice(index, 1);
+    await writeJson(storePath, store);
+    return sendJson(res, 200, { item: deleted });
   }
 
   return sendError(res, 404, 'API route not found');

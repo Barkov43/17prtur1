@@ -7,6 +7,8 @@ const state = {
   aiCreds: null,
   aiTestResult: null,
   aiTesting: false,
+  catalogEditing: null,
+  catalogCollection: 'enterprises',
   loading: false,
   message: ''
 };
@@ -24,7 +26,8 @@ const api = {
   },
   get(path) { return this.request('GET', path); },
   post(path, body) { return this.request('POST', path, body); },
-  put(path, body) { return this.request('PUT', path, body); }
+  put(path, body) { return this.request('PUT', path, body); },
+  delete(path) { return this.request('DELETE', path); }
 };
 
 const rub = (value) => `${Number(value || 0).toLocaleString('ru-RU')} ₽`;
@@ -70,17 +73,22 @@ async function init() {
     await loadPublicTour(publicMatch[1]);
     return;
   }
+  const requestedTab = new URLSearchParams(location.search).get('tab');
+  if (['landing', 'builder', 'tours', 'catalog', 'ai'].includes(requestedTab)) state.tab = requestedTab;
   await loadBase();
   render();
 }
 
 function render() {
   document.querySelector('#app').innerHTML = `
-    <div class="app-shell">
-      <aside class="sidebar">
-        <div class="brand">
-          <strong>Нейросети в промышленном туризме</strong>
-          <span>MVP для сборки промышленного тура под группу за 5-10 минут</span>
+    <div class="app-frame">
+      <header class="app-header">
+        <div class="brand" data-tab="landing">
+          <span class="brand-mark">17</span>
+          <div>
+            <strong>ПромТур AI</strong>
+            <span>умный конструктор маршрутов</span>
+          </div>
         </div>
         <nav class="nav">
           ${navButton('landing', 'О проекте')}
@@ -89,7 +97,8 @@ function render() {
           ${navButton('catalog', 'Справочники')}
           ${navButton('ai', 'AI настройки')}
         </nav>
-      </aside>
+        <button class="btn primary header-action" data-start-builder>Собрать тур</button>
+      </header>
       <main class="main">
         ${state.tab === 'landing' ? '' : renderTopbar()}
         ${state.message ? `<div class="notice">${escapeHtml(state.message)}</div>` : ''}
@@ -99,6 +108,7 @@ function render() {
         ${state.tab === 'catalog' ? renderCatalog() : ''}
         ${state.tab === 'ai' ? renderAiSettings() : ''}
       </main>
+      <footer class="app-footer">© 2026 ПромТур AI · промышленный туризм с умной маршрутизацией</footer>
     </div>
   `;
   bindEvents();
@@ -137,22 +147,27 @@ function renderTopbar() {
 function renderLanding() {
   return `
     <section class="landing">
+      <div class="landing-intro">
+        <span class="landing-kicker">AI + OSRM · маршрут по реальным дорогам</span>
+        <h1>Промышленный тур под любую группу за несколько минут</h1>
+        <p>Предприятия, логистика, питание, размещение и точная стоимость в одном готовом предложении для клиента.</p>
+        <div class="actions">
+          <button class="btn primary" data-start-builder>Собрать новый тур</button>
+          <button class="btn secondary" data-tab="catalog">Управлять справочниками</button>
+        </div>
+      </div>
       <div class="landing-hero">
         <img src="/assets/industrial-tour-hero.png" alt="Промышленный туризм и AI-планирование маршрута" />
-        <div class="landing-hero-content">
-          <span class="landing-kicker">MVP для туроператоров</span>
-          <h2>Промышленный тур под группу за 5-10 минут</h2>
-          <p>Сервис собирает готовое предложение: предприятия, транспорт, питание, размещение, программа по минутам, стоимость и ссылка для бронирования.</p>
-          <div class="actions">
-            <button class="btn primary" data-start-builder>Собрать тур</button>
-            <button class="btn ghost" data-tab="catalog">Открыть базу объектов</button>
-          </div>
+        <div class="landing-product-preview">
+          <span>Маршрут рассчитан</span>
+          <strong>4 объекта · 18,6 км</strong>
+          <small>OSRM проверил время в пути</small>
         </div>
       </div>
       <div class="landing-stats">
-        <div><strong>1-3</strong><span>предприятия в маршруте</span></div>
-        <div><strong>3/5/7</strong><span>часов дневной программы</span></div>
-        <div><strong>AI + правила</strong><span>подбор с проверкой ограничений</span></div>
+        <div><strong>5-10 минут</strong><span>на готовое предложение</span></div>
+        <div><strong>OSRM</strong><span>реальные дороги и время</span></div>
+        <div><strong>1 ссылка</strong><span>для бронирования клиентом</span></div>
       </div>
       <div class="landing-sections">
         <article>
@@ -310,7 +325,19 @@ function renderMetrics(tour) {
 }
 
 function renderRoute(tour) {
+  const route = tour.route || {};
+  const mapData = {
+    geometry: route.geometry || null,
+    stops: (route.stops || []).filter((stop) => stop.coordinates)
+  };
   return `
+    <div class="route-summary">
+      <span class="route-provider">${route.provider === 'osrm' ? 'OSRM маршрут' : 'Расчётный маршрут'}</span>
+      ${route.distanceKm ? `<strong>${route.distanceKm} км</strong>` : ''}
+      ${route.durationMinutes ? `<strong>${route.durationMinutes} мин в пути</strong>` : ''}
+      ${route.warning ? `<span class="route-warning">${escapeHtml(route.warning)}</span>` : ''}
+    </div>
+    <div class="route-live-map" data-route="${escapeHtml(JSON.stringify(mapData))}"></div>
     <div class="route-map">
       ${tour.route.points.map((point, index) => `
         <span class="route-point">${escapeHtml(point)}</span>
@@ -318,6 +345,41 @@ function renderRoute(tour) {
       `).join('')}
     </div>
   `;
+}
+
+function initializeRouteMaps() {
+  document.querySelectorAll('.route-live-map').forEach((element) => {
+    if (!window.L || element.dataset.ready === 'true') return;
+    let data;
+    try {
+      data = JSON.parse(element.dataset.route || '{}');
+    } catch {
+      return;
+    }
+    const stops = data.stops || [];
+    if (!stops.length) {
+      element.innerHTML = '<div class="map-unavailable">Для карты не хватает координат объектов</div>';
+      return;
+    }
+    const map = window.L.map(element, { scrollWheelZoom: false });
+    window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '© OpenStreetMap'
+    }).addTo(map);
+    const bounds = [];
+    stops.forEach((stop, index) => {
+      const point = [Number(stop.coordinates.lat), Number(stop.coordinates.lng)];
+      bounds.push(point);
+      window.L.marker(point).addTo(map).bindPopup(`<strong>${index + 1}. ${escapeHtml(stop.name)}</strong>`);
+    });
+    if (data.geometry?.coordinates?.length) {
+      const line = data.geometry.coordinates.map(([lng, lat]) => [lat, lng]);
+      window.L.polyline(line, { color: '#6442d6', weight: 5, opacity: 0.85 }).addTo(map);
+      line.forEach((point) => bounds.push(point));
+    }
+    map.fitBounds(bounds, { padding: [28, 28], maxZoom: 14 });
+    element.dataset.ready = 'true';
+  });
 }
 
 function renderTimeline(program) {
@@ -413,30 +475,142 @@ function renderTours() {
 }
 
 function renderCatalog() {
+  const sections = [
+    ['enterprises', 'Предприятия'],
+    ['foodPlaces', 'Питание'],
+    ['accommodations', 'Размещение'],
+    ['transportCompanies', 'Транспорт']
+  ];
+  const collection = state.catalogCollection;
+  const editing = state.catalogEditing;
   return `
-    <div class="cards">
-      ${catalogSection('Предприятия', state.catalog.enterprises, (item) => `${item.city}, ${item.industry}. ${item.durationMinutes} мин, вместимость ${item.capacity}`)}
-      ${catalogSection('Питание', state.catalog.foodPlaces, (item) => `${item.city}, ${item.type}, ${rub(item.pricePerPerson)} / чел., ${item.capacity} мест`)}
-      ${catalogSection('Размещение', state.catalog.accommodations, (item) => `${item.city}, ${item.type}, ${rub(item.pricePerPerson)} / чел., ${item.capacity} мест`)}
-      ${catalogSection('Транспорт', state.catalog.transportCompanies, (item) => `${item.city}, ${item.transportType}, ${item.capacity} мест, ${rub(item.pricePerHour)} / час`)}
-    </div>
-  `;
-}
-
-function catalogSection(title, items, meta) {
-  return `
-    <section class="panel">
-      <h2>${title}</h2>
-      <div class="cards">
-        ${items.map((item) => `
-          <article class="card">
-            <h3>${escapeHtml(item.name)}</h3>
-            <p>${escapeHtml(meta(item))}</p>
-          </article>
-        `).join('')}
+    <section class="catalog-workspace">
+      <div class="catalog-toolbar">
+        <div>
+          <span class="eyebrow">Администрирование данных</span>
+          <h2>Редактируемые справочники</h2>
+          <p>Обновляйте цены, вместимость, расписание и координаты без изменения кода.</p>
+        </div>
+        <button class="btn primary" data-catalog-add>Добавить объект</button>
+      </div>
+      <div class="catalog-tabs">
+        ${sections.map(([key, title]) => `<button class="${collection === key ? 'active' : ''}" data-catalog-collection="${key}">${title}<span>${state.catalog[key].length}</span></button>`).join('')}
+      </div>
+      ${editing ? renderCatalogEditor(collection, editing) : ''}
+      <div class="catalog-list">
+        ${state.catalog[collection].map((item) => renderCatalogItem(collection, item)).join('')}
       </div>
     </section>
   `;
+}
+
+function catalogMeta(collection, item) {
+  if (collection === 'enterprises') return `${item.city}, ${item.industry || 'отрасль не указана'} · ${item.durationMinutes || 0} мин · до ${item.capacity || 0} чел.`;
+  if (collection === 'foodPlaces') return `${item.city}, ${item.type || 'тип не указан'} · ${rub(item.pricePerPerson)} / чел. · ${item.capacity || 0} мест`;
+  if (collection === 'accommodations') return `${item.city}, ${item.type || 'тип не указан'} · ${rub(item.pricePerPerson)} / чел. · ${item.capacity || 0} мест`;
+  return `${item.city}, ${item.transportType || 'транспорт'} · ${item.capacity || 0} мест · ${rub(item.pricePerHour)} / час`;
+}
+
+function renderCatalogItem(collection, item) {
+  const coords = item.coordinates;
+  return `
+    <article class="catalog-item">
+      <div class="catalog-item-main">
+        <span class="catalog-type">${escapeHtml(collection === 'enterprises' ? 'Предприятие' : collection === 'foodPlaces' ? 'Питание' : collection === 'accommodations' ? 'Размещение' : 'Транспорт')}</span>
+        <h3>${escapeHtml(item.name)}</h3>
+        <p>${escapeHtml(catalogMeta(collection, item))}</p>
+        <small>${escapeHtml(item.address || item.phone || 'Контактные данные не указаны')}</small>
+      </div>
+      <div class="catalog-item-side">
+        ${coords ? `<span class="coordinate-badge">${Number(coords.lat).toFixed(4)}, ${Number(coords.lng).toFixed(4)}</span>` : '<span class="coordinate-badge missing">Нет координат</span>'}
+        <div class="actions">
+          <button class="btn secondary compact" data-catalog-edit="${item.id}">Изменить</button>
+          <button class="btn danger compact" data-catalog-delete="${item.id}">Удалить</button>
+        </div>
+      </div>
+    </article>
+  `;
+}
+
+function catalogField(name, label, value = '', type = 'text', extra = '') {
+  return `<div class="field"><label>${label}</label><input name="${name}" type="${type}" value="${escapeHtml(value)}" ${extra} /></div>`;
+}
+
+function renderCatalogEditor(collection, item) {
+  const isNew = !item.id;
+  return `
+    <form id="catalog-form" class="catalog-editor">
+      <input type="hidden" name="id" value="${item.id || ''}" />
+      <div class="catalog-editor-head">
+        <div><span class="eyebrow">${isNew ? 'Новая запись' : `Запись #${item.id}`}</span><h3>${isNew ? 'Добавление объекта' : 'Редактирование объекта'}</h3></div>
+        <button class="btn secondary compact" type="button" data-catalog-cancel>Закрыть</button>
+      </div>
+      <div class="editor-grid">
+        ${catalogField('name', 'Название', item.name, 'text', 'required')}
+        ${catalogField('city', 'Город', item.city || 'Киров', 'text', 'required')}
+        ${catalogField('address', 'Адрес', item.address)}
+        ${collection === 'enterprises' ? catalogField('industry', 'Отрасль', item.industry) : ''}
+        ${collection === 'foodPlaces' || collection === 'accommodations' ? catalogField('type', 'Тип', item.type) : ''}
+        ${collection === 'transportCompanies' ? catalogField('transportType', 'Тип транспорта', item.transportType || 'автобус') : ''}
+        ${catalogField('capacity', 'Вместимость', item.capacity || '', 'number', 'min="1" required')}
+        ${collection === 'enterprises' ? catalogField('durationMinutes', 'Длительность экскурсии, мин', item.durationMinutes || 60, 'number', 'min="1"') : ''}
+        ${collection === 'enterprises' ? catalogField('minGroup', 'Минимальная группа', item.minGroup || 1, 'number', 'min="1"') : ''}
+        ${collection === 'enterprises' ? catalogField('priceSchool', 'Цена для школьника', item.prices?.school || 0, 'number', 'min="0"') : ''}
+        ${collection === 'enterprises' ? catalogField('priceStudent', 'Цена для студента', item.prices?.student || 0, 'number', 'min="0"') : ''}
+        ${collection === 'enterprises' ? catalogField('priceBusiness', 'Цена для бизнеса', item.prices?.business || 0, 'number', 'min="0"') : ''}
+        ${collection === 'foodPlaces' || collection === 'accommodations' ? catalogField('pricePerPerson', 'Цена на человека', item.pricePerPerson || 0, 'number', 'min="0"') : ''}
+        ${collection === 'foodPlaces' ? catalogField('minDurationMinutes', 'Минимальное время, мин', item.minDurationMinutes || 40, 'number', 'min="1"') : ''}
+        ${collection === 'transportCompanies' ? catalogField('pricePerHour', 'Цена за час', item.pricePerHour || 0, 'number', 'min="0"') : ''}
+        ${collection === 'transportCompanies' ? catalogField('minHours', 'Минимум часов', item.minHours || 1, 'number', 'min="1"') : ''}
+        ${collection !== 'transportCompanies' ? catalogField('lat', 'Широта', item.coordinates?.lat || '', 'number', 'step="any"') : ''}
+        ${collection !== 'transportCompanies' ? catalogField('lng', 'Долгота', item.coordinates?.lng || '', 'number', 'step="any"') : ''}
+        ${collection === 'enterprises' ? catalogField('workStart', 'Начало работы', item.workStart || '09:00', 'time') : ''}
+        ${collection === 'enterprises' ? catalogField('workEnd', 'Окончание работы', item.workEnd || '18:00', 'time') : ''}
+        ${collection === 'enterprises' ? catalogField('availableStarts', 'Доступные старты через запятую', (item.availableStarts || []).join(', ')) : ''}
+      </div>
+      ${collection === 'enterprises' ? `<div class="field"><label>Описание</label><textarea name="description">${escapeHtml(item.description || '')}</textarea></div>` : ''}
+      <div class="actions">
+        <button class="btn primary" type="submit">${isNew ? 'Добавить' : 'Сохранить изменения'}</button>
+        <button class="btn secondary" type="button" data-catalog-cancel>Отмена</button>
+      </div>
+    </form>
+  `;
+}
+
+function catalogPayload(collection, form) {
+  const value = Object.fromEntries(form.entries());
+  const number = (name, fallback = 0) => Number(value[name] || fallback);
+  const payload = {
+    name: value.name.trim(),
+    city: value.city.trim(),
+    address: value.address?.trim() || '',
+    capacity: number('capacity')
+  };
+  if (value.lat && value.lng) payload.coordinates = { lat: number('lat'), lng: number('lng') };
+  if (collection === 'enterprises') {
+    Object.assign(payload, {
+      industry: value.industry?.trim() || '',
+      description: value.description?.trim() || '',
+      durationMinutes: number('durationMinutes', 60),
+      minGroup: number('minGroup', 1),
+      maxGroup: number('capacity'),
+      prices: { school: number('priceSchool'), student: number('priceStudent'), business: number('priceBusiness') },
+      workStart: value.workStart || '09:00',
+      workEnd: value.workEnd || '18:00',
+      availableStarts: String(value.availableStarts || '').split(',').map((part) => part.trim()).filter(Boolean),
+      allowedGroups: ['school', 'student', 'business'],
+      tags: state.catalogEditing?.tags || [],
+      tourFormats: state.catalogEditing?.tourFormats || [],
+      isFree: number('priceSchool') === 0
+    });
+  } else if (collection === 'foodPlaces') {
+    Object.assign(payload, { type: value.type || '', pricePerPerson: number('pricePerPerson'), minDurationMinutes: number('minDurationMinutes', 40), tags: state.catalogEditing?.tags || [] });
+  } else if (collection === 'accommodations') {
+    Object.assign(payload, { type: value.type || '', pricePerPerson: number('pricePerPerson'), tags: state.catalogEditing?.tags || [] });
+  } else {
+    Object.assign(payload, { transportType: value.transportType || 'автобус', pricePerHour: number('pricePerHour'), minHours: number('minHours', 1), capacityMin: 1, capacityMax: number('capacity') });
+  }
+  return payload;
 }
 
 function renderAiSettings() {
@@ -501,6 +675,7 @@ function bindEvents() {
     button.addEventListener('click', () => {
       state.tab = button.dataset.tab;
       state.message = '';
+      history.replaceState(null, '', state.tab === 'landing' ? location.pathname : `${location.pathname}?tab=${state.tab}`);
       render();
     });
   });
@@ -508,6 +683,7 @@ function bindEvents() {
   document.querySelector('#tour-form')?.addEventListener('submit', handleTourSubmit);
   document.querySelector('[data-start-builder]')?.addEventListener('click', () => {
     state.tab = 'builder';
+    history.replaceState(null, '', `${location.pathname}?tab=builder`);
     render();
   });
   document.querySelector('[data-demo]')?.addEventListener('click', fillBusinessDemo);
@@ -515,6 +691,70 @@ function bindEvents() {
   document.querySelector('[data-print]')?.addEventListener('click', () => window.print());
   document.querySelector('#ai-form')?.addEventListener('submit', handleAiSubmit);
   document.querySelector('[data-ai-test]')?.addEventListener('click', handleAiTest);
+  document.querySelectorAll('[data-catalog-collection]').forEach((button) => {
+    button.addEventListener('click', () => {
+      state.catalogCollection = button.dataset.catalogCollection;
+      state.catalogEditing = null;
+      render();
+    });
+  });
+  document.querySelector('[data-catalog-add]')?.addEventListener('click', () => {
+    state.catalogEditing = {};
+    render();
+  });
+  document.querySelectorAll('[data-catalog-edit]').forEach((button) => {
+    button.addEventListener('click', () => {
+      state.catalogEditing = state.catalog[state.catalogCollection].find((item) => item.id === Number(button.dataset.catalogEdit));
+      render();
+    });
+  });
+  document.querySelectorAll('[data-catalog-cancel]').forEach((button) => {
+    button.addEventListener('click', () => {
+      state.catalogEditing = null;
+      render();
+    });
+  });
+  document.querySelectorAll('[data-catalog-delete]').forEach((button) => {
+    button.addEventListener('click', () => handleCatalogDelete(Number(button.dataset.catalogDelete)));
+  });
+  document.querySelector('#catalog-form')?.addEventListener('submit', handleCatalogSubmit);
+  initializeRouteMaps();
+}
+
+async function handleCatalogSubmit(event) {
+  event.preventDefault();
+  const form = new FormData(event.currentTarget);
+  const id = Number(form.get('id') || 0);
+  const payload = catalogPayload(state.catalogCollection, form);
+  try {
+    if (id) {
+      await api.put(`/api/admin/catalog/${state.catalogCollection}/${id}`, payload);
+      state.message = 'Запись справочника обновлена';
+    } else {
+      await api.post(`/api/admin/catalog/${state.catalogCollection}`, payload);
+      state.message = 'Новая запись добавлена';
+    }
+    state.catalogEditing = null;
+    await loadBase();
+    render();
+  } catch (error) {
+    state.message = error.message;
+    render();
+  }
+}
+
+async function handleCatalogDelete(id) {
+  const item = state.catalog[state.catalogCollection].find((entry) => entry.id === id);
+  if (!item || !window.confirm(`Удалить "${item.name}"?`)) return;
+  try {
+    await api.delete(`/api/admin/catalog/${state.catalogCollection}/${id}`);
+    state.message = 'Запись удалена';
+    await loadBase();
+    render();
+  } catch (error) {
+    state.message = error.message;
+    render();
+  }
 }
 
 async function handleTourSubmit(event) {
@@ -643,6 +883,7 @@ function renderPublic() {
   `;
   document.querySelector('#booking-form').addEventListener('submit', handleBookingSubmit);
   document.querySelector('[data-public-print]').addEventListener('click', () => window.print());
+  initializeRouteMaps();
 }
 
 async function handleBookingSubmit(event) {
