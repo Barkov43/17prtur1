@@ -1,0 +1,19 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    init: true
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-4173}:4173"
+    environment:
+      PORT: "4173"
+      AI_API_URL: "${AI_API_URL:-}"
+      AI_API_MODEL: "${AI_API_MODEL:-}"
+      AI_API_KEY: "${AI_API_KEY:-}"
+    volumes:
+      - app_data:/app/server/data
+
+volumes:
+  app_data:

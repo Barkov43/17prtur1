@@ -1,0 +1,10 @@
+.git
+.gitignore
+.env
+.env.*
+node_modules
+npm-debug.log*
+work
+outputs
+server/data/ai-cred.json
+server/data/*-cred.local.json

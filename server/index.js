@@ -40,11 +40,20 @@ async function writeJson(filePath, data) {
 }
 
 async function loadAiCreds() {
+  let fileCreds = {};
   try {
-    return { ...defaultAiCreds, ...(await readJson(aiCredPath)) };
+    fileCreds = await readJson(aiCredPath);
   } catch {
-    return { ...defaultAiCreds };
+    fileCreds = {};
   }
+
+  const envCreds = Object.fromEntries(
+    ['AI_API_URL', 'AI_API_KEY', 'AI_API_MODEL', 'AI_SYSTEM_PROMPT']
+      .filter((key) => String(process.env[key] || '').trim())
+      .map((key) => [key, process.env[key]])
+  );
+
+  return { ...defaultAiCreds, ...fileCreds, ...envCreds };
 }
 
 async function readBody(req) {
