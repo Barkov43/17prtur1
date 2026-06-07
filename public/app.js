@@ -326,6 +326,7 @@ function renderMetrics(tour) {
 
 function renderRoute(tour) {
   const route = tour.route || {};
+  const geocoding = route.meetingGeocoding || {};
   const mapData = {
     geometry: route.geometry || null,
     stops: (route.stops || []).filter((stop) => stop.coordinates)
@@ -337,6 +338,7 @@ function renderRoute(tour) {
       ${route.durationMinutes ? `<strong>${route.durationMinutes} мин в пути</strong>` : ''}
       ${route.warning ? `<span class="route-warning">${escapeHtml(route.warning)}</span>` : ''}
     </div>
+    ${geocoding.displayName ? `<div class="route-geocoding"><strong>Точка сбора найдена:</strong> ${escapeHtml(geocoding.displayName)}</div>` : ''}
     <div class="route-live-map" data-route="${escapeHtml(JSON.stringify(mapData))}"></div>
     <div class="route-map">
       ${tour.route.points.map((point, index) => `
@@ -349,7 +351,7 @@ function renderRoute(tour) {
 
 function initializeRouteMaps() {
   document.querySelectorAll('.route-live-map').forEach((element) => {
-    if (!window.L || element.dataset.ready === 'true') return;
+    if (!window.maplibregl || element.dataset.ready === 'true') return;
     let data;
     try {
       data = JSON.parse(element.dataset.route || '{}');
@@ -361,23 +363,63 @@ function initializeRouteMaps() {
       element.innerHTML = '<div class="map-unavailable">Для карты не хватает координат объектов</div>';
       return;
     }
-    const map = window.L.map(element, { scrollWheelZoom: false });
-    window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution: '© OpenStreetMap'
-    }).addTo(map);
-    const bounds = [];
-    stops.forEach((stop, index) => {
-      const point = [Number(stop.coordinates.lat), Number(stop.coordinates.lng)];
-      bounds.push(point);
-      window.L.marker(point).addTo(map).bindPopup(`<strong>${index + 1}. ${escapeHtml(stop.name)}</strong>`);
+    const firstPoint = [Number(stops[0].coordinates.lng), Number(stops[0].coordinates.lat)];
+    const map = new window.maplibregl.Map({
+      container: element,
+      style: {
+        version: 8,
+        sources: {
+          'osm-tiles': {
+            type: 'raster',
+            tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+            tileSize: 256,
+            maxzoom: 19,
+            attribution: '© OpenStreetMap contributors'
+          }
+        },
+        layers: [{ id: 'osm-tiles', type: 'raster', source: 'osm-tiles' }]
+      },
+      center: firstPoint,
+      zoom: 11,
+      scrollZoom: false
     });
-    if (data.geometry?.coordinates?.length) {
-      const line = data.geometry.coordinates.map(([lng, lat]) => [lat, lng]);
-      window.L.polyline(line, { color: '#6442d6', weight: 5, opacity: 0.85 }).addTo(map);
-      line.forEach((point) => bounds.push(point));
-    }
-    map.fitBounds(bounds, { padding: [28, 28], maxZoom: 14 });
+    map.addControl(new window.maplibregl.NavigationControl({ showCompass: false }), 'top-right');
+    const bounds = new window.maplibregl.LngLatBounds();
+    stops.forEach((stop, index) => {
+      const point = [Number(stop.coordinates.lng), Number(stop.coordinates.lat)];
+      bounds.extend(point);
+      const marker = document.createElement('div');
+      marker.className = `map-marker ${stop.type === 'meeting' ? 'map-marker-meeting' : ''}`;
+      marker.textContent = String(index + 1);
+      new window.maplibregl.Marker({ element: marker })
+        .setLngLat(point)
+        .setPopup(new window.maplibregl.Popup({ offset: 24 }).setHTML(`<strong>${index + 1}. ${escapeHtml(stop.name)}</strong>`))
+        .addTo(map);
+    });
+    map.on('load', () => {
+      if (data.geometry?.coordinates?.length) {
+        map.addSource('tour-route', {
+          type: 'geojson',
+          data: { type: 'Feature', properties: {}, geometry: data.geometry }
+        });
+        map.addLayer({
+          id: 'tour-route-outline',
+          type: 'line',
+          source: 'tour-route',
+          layout: { 'line-cap': 'round', 'line-join': 'round' },
+          paint: { 'line-color': '#ffffff', 'line-width': 9, 'line-opacity': 0.92 }
+        });
+        map.addLayer({
+          id: 'tour-route',
+          type: 'line',
+          source: 'tour-route',
+          layout: { 'line-cap': 'round', 'line-join': 'round' },
+          paint: { 'line-color': '#5b35d5', 'line-width': 6, 'line-opacity': 0.96 }
+        });
+        data.geometry.coordinates.forEach((point) => bounds.extend(point));
+      }
+      map.fitBounds(bounds, { padding: 48, maxZoom: 14, duration: 0 });
+    });
     element.dataset.ready = 'true';
   });
 }
@@ -788,7 +830,7 @@ function fillBusinessDemo() {
   form.durationHours.value = '7';
   form.goal.value = 'business';
   form.interests.value = 'обмен опытом, индустриальный парк, встреча с резидентами';
-  form.meetingPoint.value = 'г. Киров, ул. Ленина, 1';
+  form.meetingPoint.value = 'г. Пермь, ул. Ленина, 1';
   form.overnight.checked = true;
 }
 

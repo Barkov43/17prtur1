@@ -909,6 +909,40 @@ button {
   background: #f3edf7;
 }
 
+.route-geocoding {
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.route-geocoding strong {
+  color: var(--text);
+}
+
+.map-marker {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border: 3px solid #fff;
+  border-radius: 50%;
+  background: #6442d6;
+  box-shadow: 0 3px 10px rgb(44 35 69 / 28%);
+  color: #fff;
+  cursor: pointer;
+  font: 700 12px/1 Inter, sans-serif;
+}
+
+.map-marker-meeting {
+  background: #006c4c;
+}
+
+.maplibregl-popup-content {
+  border-radius: 8px;
+  color: var(--text);
+  font: 13px/1.4 Inter, sans-serif;
+}
+
 .map-unavailable {
   display: grid;
   height: 100%;

@@ -13,6 +13,8 @@ const aiCredPath = path.join(dataDir, 'ai-cred.json');
 const internalPromptPath = path.join(dataDir, 'internal-llm-prompt.md');
 const PORT = Number(process.env.PORT || 4173);
 const OSRM_URL = String(process.env.OSRM_URL || 'https://router.project-osrm.org').replace(/\/+$/, '');
+const GEOCODER_URL = String(process.env.GEOCODER_URL || 'https://nominatim.openstreetmap.org').replace(/\/+$/, '');
+const geocodeCache = new Map();
 
 const cityCenters = {
   'киров': { lat: 58.6035, lng: 49.6679 },
@@ -82,6 +84,10 @@ function normalize(value) {
   return String(value || '').trim().toLowerCase();
 }
 
+function escapeRegExp(value) {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function tokenize(text) {
   return normalize(text)
     .replace(/[^\p{L}\p{N}\s-]/gu, ' ')
@@ -112,6 +118,73 @@ function validCoordinates(value) {
     && Number.isFinite(Number(value.lng));
 }
 
+async function resolveMeetingPoint(request) {
+  if (validCoordinates(request.meetingCoordinates)) return request;
+
+  const meetingPoint = String(request.meetingPoint || '').trim();
+  const cityCenter = cityCenters[normalize(request.city)] || null;
+  if (!meetingPoint || meetingPoint === 'по согласованию') {
+    return {
+      ...request,
+      meetingCoordinates: cityCenter,
+      meetingGeocoding: {
+        provider: 'fallback',
+        warning: 'Точный адрес точки сбора не указан, используется центр города.'
+      }
+    };
+  }
+
+  const cityPrefix = new RegExp(`^(?:г(?:ород)?\\.?\\s*)?${escapeRegExp(request.city)}\\s*,?\\s*`, 'iu');
+  const addressWithoutCity = meetingPoint.replace(cityPrefix, '').trim();
+  const query = `${addressWithoutCity || meetingPoint}, ${request.city}, Россия`;
+  const cached = geocodeCache.get(normalize(query));
+  if (cached) {
+    return { ...request, meetingCoordinates: cached.coordinates, meetingGeocoding: cached.details };
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 6000);
+  try {
+    const url = new URL(`${GEOCODER_URL}/search`);
+    url.searchParams.set('q', query);
+    url.searchParams.set('format', 'jsonv2');
+    url.searchParams.set('limit', '1');
+    url.searchParams.set('countrycodes', 'ru');
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        'Accept-Language': 'ru',
+        'User-Agent': '17prtur-industrial-tour-mvp/1.0 (https://github.com/Barkov43/17prtur1)'
+      }
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const results = await response.json();
+    const match = results?.[0];
+    const coordinates = match ? { lat: Number(match.lat), lng: Number(match.lon) } : null;
+    if (!validCoordinates(coordinates)) throw new Error('адрес не найден');
+
+    const details = {
+      provider: 'nominatim',
+      query,
+      displayName: match.display_name || meetingPoint
+    };
+    geocodeCache.set(normalize(query), { coordinates, details });
+    return { ...request, meetingCoordinates: coordinates, meetingGeocoding: details };
+  } catch (error) {
+    return {
+      ...request,
+      meetingCoordinates: cityCenter,
+      meetingGeocoding: {
+        provider: 'fallback',
+        query,
+        warning: `Не удалось найти точку сбора по адресу: ${error.name === 'AbortError' ? 'превышено время ожидания' : error.message}. Используется центр города.`
+      }
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 function routeStops(selection, request) {
   const meetingCoordinates = validCoordinates(request.meetingCoordinates)
     ? request.meetingCoordinates
@@ -140,15 +213,20 @@ function routeStops(selection, request) {
 async function buildOsrmRoute(selection, request) {
   const stops = routeStops(selection, request);
   const routableStops = stops.filter((stop) => validCoordinates(stop.coordinates));
+  const geocodingWarning = request.meetingGeocoding?.warning || '';
   const fallback = {
     provider: 'fallback',
     points: stops.map((stop) => stop.name),
     stops,
+    meetingGeocoding: request.meetingGeocoding || null,
     distanceKm: null,
     durationMinutes: null,
     geometry: null,
     legs: [],
-    warning: routableStops.length < stops.length ? 'Часть объектов не имеет координат.' : ''
+    warning: [
+      geocodingWarning,
+      routableStops.length < stops.length ? 'Часть объектов не имеет координат.' : ''
+    ].filter(Boolean).join(' ')
   };
   if (routableStops.length < 2) return fallback;
 
@@ -172,6 +250,7 @@ async function buildOsrmRoute(selection, request) {
       points: stops.map((stop) => stop.name),
       stops,
       routedStops: routableStops,
+      meetingGeocoding: request.meetingGeocoding || null,
       distanceKm: Math.round((route.distance / 1000) * 10) / 10,
       durationMinutes: Math.max(1, Math.round(route.duration / 60)),
       geometry: route.geometry,
@@ -179,7 +258,10 @@ async function buildOsrmRoute(selection, request) {
         distanceKm: Math.round((leg.distance / 1000) * 10) / 10,
         durationMinutes: Math.max(1, Math.round(leg.duration / 60))
       })),
-      warning: routableStops.length < stops.length ? 'Объекты без координат не включены в расчёт OSRM.' : ''
+      warning: [
+        geocodingWarning,
+        routableStops.length < stops.length ? 'Объекты без координат не включены в расчёт OSRM.' : ''
+      ].filter(Boolean).join(' ')
     };
   } catch (error) {
     return {
@@ -762,7 +844,8 @@ async function assembleTour(store, request, selection, previous = {}) {
 
 async function planTour(request) {
   const store = await readJson(storePath);
-  const fallback = chooseByRules(store, request);
+  const resolvedRequest = await resolveMeetingPoint(request);
+  const fallback = chooseByRules(store, resolvedRequest);
   if (!fallback.selectedEnterprises.length || !fallback.selectedTransport) {
     return { error: 'Не хватает подходящих предприятий или транспорта для выбранных параметров.' };
   }
@@ -770,7 +853,7 @@ async function planTour(request) {
   let aiPlan = null;
   let aiDiagnostic = null;
   try {
-    const aiResult = await callAiPlanner(request, fallback.candidates);
+    const aiResult = await callAiPlanner(resolvedRequest, fallback.candidates);
     aiPlan = aiResult?.plan || null;
     aiDiagnostic = aiResult?.diagnostic || null;
   } catch (err) {
@@ -783,7 +866,7 @@ async function planTour(request) {
   }
 
   const selection = applyAiSelection(aiPlan, fallback);
-  const tour = await assembleTour(store, request, selection);
+  const tour = await assembleTour(store, resolvedRequest, selection);
   tour.aiUsed = Boolean(aiPlan);
   tour.aiDiagnostic = aiDiagnostic || {
     mode: 'fallback',
