@@ -475,11 +475,24 @@ function buildProgram(selection, request, route) {
     const distance = leg?.distanceKm ? ` ${leg.distanceKm} км.` : '';
     push(duration, title, `${description}${distance}`);
   };
+  const waitForEnterpriseSlot = (enterprise) => {
+    const currentMinutes = timeToMinutes(time);
+    const availableStart = (enterprise.availableStarts || [])
+      .map((slot) => ({ slot, minutes: timeToMinutes(slot) }))
+      .find(({ minutes }) => minutes >= currentMinutes);
+    if (!availableStart || availableStart.minutes <= currentMinutes) return;
+    push(
+      availableStart.minutes - currentMinutes,
+      'Подготовка к экскурсии',
+      `Регистрация группы, инструктаж по безопасности и ожидание подтверждённого старта в ${availableStart.slot}.`
+    );
+  };
 
   push(15, 'Сбор группы', `Точка сбора: ${request.meetingPoint || 'по согласованию'}. Группа: ${groupLabel(request.groupType)}, ${request.groupSize} чел.`);
 
   selection.selectedEnterprises.forEach((enterprise, index) => {
     pushTravel(index === 0 ? 30 : 20, 'Переезд', `Маршрут до объекта: ${enterprise.name}, ${enterprise.address}.`);
+    waitForEnterpriseSlot(enterprise);
     const formatName = enterprise.selectedFormat?.name || 'экскурсия';
     push(enterprise.durationMinutes, enterprise.name, `${enterprise.industry}. Формат: ${formatName}. ${enterprise.description}`);
 
@@ -792,10 +805,18 @@ function applyAiSelection(aiPlan, fallbackSelection) {
   const selectedEnterprises = enterpriseIds
     .map((id) => candidates.enterprises.find((item) => item.id === id))
     .filter(Boolean);
+  const requestedCount = fallbackSelection.selectedEnterprises.length;
+  const supplementedEnterprises = [...selectedEnterprises];
+  for (const enterprise of fallbackSelection.selectedEnterprises) {
+    if (supplementedEnterprises.length >= requestedCount) break;
+    if (!supplementedEnterprises.some((item) => item.id === enterprise.id)) {
+      supplementedEnterprises.push(enterprise);
+    }
+  }
 
   return {
     ...fallbackSelection,
-    selectedEnterprises: selectedEnterprises.length ? selectedEnterprises : fallbackSelection.selectedEnterprises,
+    selectedEnterprises: supplementedEnterprises.length ? supplementedEnterprises : fallbackSelection.selectedEnterprises,
     selectedFood: candidates.foodPlaces.find((item) => item.id === Number(normalizedPlan.selectedFoodId)) || fallbackSelection.selectedFood,
     selectedTransport: candidates.transports.find((item) => item.id === Number(normalizedPlan.selectedTransportId)) || fallbackSelection.selectedTransport,
     selectedAccommodation: candidates.accommodations.find((item) => item.id === Number(normalizedPlan.selectedAccommodationId)) || fallbackSelection.selectedAccommodation,
