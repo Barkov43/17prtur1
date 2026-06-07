@@ -334,8 +334,8 @@ function renderRoute(tour) {
   return `
     <div class="route-summary">
       <span class="route-provider">${route.provider === 'osrm' ? 'OSRM маршрут' : 'Расчётный маршрут'}</span>
-      ${route.distanceKm ? `<strong>${route.distanceKm} км</strong>` : ''}
-      ${route.durationMinutes ? `<strong>${route.durationMinutes} мин в пути</strong>` : ''}
+      ${route.distanceKm ? `<strong>Пробег автобуса: ${route.distanceKm} км</strong>` : ''}
+      ${route.durationMinutes ? `<strong>Все переезды: ${route.durationMinutes} мин без пробок</strong>` : ''}
       ${route.warning ? `<span class="route-warning">${escapeHtml(route.warning)}</span>` : ''}
     </div>
     ${geocoding.displayName ? `<div class="route-geocoding"><strong>Точка сбора найдена:</strong> ${escapeHtml(geocoding.displayName)}</div>` : ''}
